@@ -238,6 +238,8 @@ class LCAppModel: ObservableObject, Hashable {
         let multitask = true
         // Dock 仅在虚拟窗口模式（LCMultitaskMode=0）下存在，启动前强制回该模式
         LCUtils.appGroupUserDefault.set(0, forKey: "LCMultitaskMode")
+        // 游戏窗口默认以最大化（全屏）打开，否则是带标题栏的浮动窗，不适合游戏
+        UserDefaults.standard.set(true, forKey: "LCLaunchMultitaskMaximized")
         
         if MultitaskManager.isMultitasking() || multitask,
            let currentDataFolder {
