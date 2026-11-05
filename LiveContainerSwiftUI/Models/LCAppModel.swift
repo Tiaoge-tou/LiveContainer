@@ -233,8 +233,11 @@ class LCAppModel: ObservableObject, Hashable {
         let currentDataFolder = containerFolderName ?? uiSelectedContainer?.folderName
         
         let classicMode = appInfo.defaultClassicMode
-        // 专用游戏容器：强制串行单开，忽略全局/单应用多任务设置，永不以多任务模式启动
-        let multitask = false
+        // [exp/dock-return 实验] 强制多任务单窗口：游戏一律以多任务虚拟窗口启动，借宿主进程常驻
+        // 实现游戏中「返回游戏库」快捷栏。经典模式判定不再拦截多任务（实验观察点之一）。
+        let multitask = true
+        // Dock 仅在虚拟窗口模式（LCMultitaskMode=0）下存在，启动前强制回该模式
+        LCUtils.appGroupUserDefault.set(0, forKey: "LCMultitaskMode")
         
         if MultitaskManager.isMultitasking() || multitask,
            let currentDataFolder {
@@ -313,6 +316,17 @@ class LCAppModel: ObservableObject, Hashable {
             }
         }
         
+        // [exp/dock-return 实验] 单窗口保证：走到这里说明要启动的游戏没有可切回的现成窗口
+        // （同一游戏已在运行的情形已在上方 bring-to-front 提前返回）。若还有其它游戏的多任务
+        // 窗口在运行，先全部关闭（终止其客体进程），保证同一时刻只有一个游戏窗口。
+        if MultitaskManager.isMultitasking(), #available(iOS 16.0, *) {
+            await MainActor.run {
+                MultitaskDockManager.shared.closeAllWindows()
+            }
+            // 给旧客体进程留一点退出/注销容器占用的时间，降低与新窗口启动的竞态
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+
         await MainActor.run {
             isAppRunning = true
         }

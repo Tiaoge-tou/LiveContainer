@@ -246,16 +246,15 @@ class AppInfoProvider {
     }
 
     private func expandedDockBaseHeight(for width: CGFloat, buttonSize: CGFloat) -> CGFloat {
-        let spacingCount = max(self.apps.count + 1, 0)
-        let totalSpacingHeight = CGFloat(spacingCount) * Constants.dockContentSpacing
-        return Constants.dockVerticalPadding + buttonSize * 2 + totalSpacingHeight
+        // [exp/dock-return 实验] Dock 只剩一个「返回游戏库」按钮，高度只按一个按钮算，避免留出大块透明触控区
+        let totalSpacingHeight = 2 * Constants.dockContentSpacing
+        return Constants.dockVerticalPadding + buttonSize + totalSpacingHeight
     }
 
     private func expandedDockHeight(for width: CGFloat, iconSize: CGFloat) -> CGFloat {
+        // [exp/dock-return 实验] 不再显示各窗口图标，高度不含图标项（iconSize 参数保留以不动调用点）
         let buttonSize = calculateButtonSize(for: width)
-        let baseHeight = expandedDockBaseHeight(for: width, buttonSize: buttonSize)
-        let iconHeight = CGFloat(self.apps.count) * iconSize
-        return baseHeight + iconHeight
+        return expandedDockBaseHeight(for: width, buttonSize: buttonSize)
     }
 
     private func collapsedDockHeight(for width: CGFloat) -> CGFloat {
@@ -716,6 +715,18 @@ class AppInfoProvider {
         }
     }
     
+    // [exp/dock-return 实验] 关闭全部多任务窗口并终止其客体进程，供「单窗口」启动策略在启动新游戏前调用
+    @objc public func closeAllWindows() {
+        DispatchQueue.main.async {
+            let currentApps = self.apps
+            currentApps.forEach { app in
+                if let vc = app.view?._viewDelegate() as? DecoratedAppSceneViewController {
+                    vc.closeWindow()
+                }
+            }
+        }
+    }
+
     @objc public func minimizeAllWindows(except: DecoratedAppSceneViewController? = nil) {
         DispatchQueue.main.async {
             self.apps.forEach { app in
@@ -828,28 +839,13 @@ public struct MultitaskDockSwiftView: View {
     public var body: some View {
         GeometryReader { g in
             VStack(spacing: 8) {
-                if dockManager.isCollapsed {
-                    CollapsedDockView(isHidden: dockManager.isDockHidden)
-                        .onTapGesture {
-                            dockManager.toggleDockCollapse()
-                        }
-                } else {
-                    VStack(spacing: 8) {
-                        CollapseButtonView()
-                            .onTapGesture {
-                                dockManager.toggleDockCollapse()
-                            }
-                        
-                        MinimizeAllButtonView()
-                            .onTapGesture {
-                                dockManager.minimizeAllWindows()
-                            }
-                        
-                        ForEach(dockManager.apps) { app in
-                            AppIconView(app: app)
-                        }
+                // [exp/dock-return 实验] Dock 砍为单一动作：只留「返回游戏库」——最小化当前游戏窗口、
+                // 露出宿主游戏库界面；去掉折叠钮、窗口图标切换等全部其它入口。游戏进程保留，
+                // 在游戏库里再点同一款游戏即切回原窗口。
+                ReturnToLibraryButtonView()
+                    .onTapGesture {
+                        dockManager.minimizeAllWindows()
                     }
-                }
             }
             .padding(dynamicPadding)
             .modifier { content in
@@ -1061,6 +1057,36 @@ struct MinimizeAllButtonView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(Color.white.opacity(0.2), lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Return To Library Button View
+// [exp/dock-return 实验] 单一「返回游戏库」按钮：半透明深色圆角钮，低调不遮挡游戏画面
+@available(iOS 16.0, *)
+struct ReturnToLibraryButtonView: View {
+    @EnvironmentObject var dockManager: MultitaskDockManager
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.black.opacity(0.45))
+                .frame(width: dockManager.adaptiveIconSize, height: dockManager.adaptiveIconSize)
+
+            VStack(spacing: 2) {
+                Image(systemName: "square.grid.2x2.fill")
+                    .foregroundColor(.white)
+                    .font(.system(size: dockManager.adaptiveIconSize * 0.34, weight: .semibold))
+                Text("游戏库")
+                    .foregroundColor(.white)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+        )
+        .accessibilityLabel("返回游戏库")
+        .animation(.spring(response: MultitaskDockManager.Constants.longAnimationDuration, dampingFraction: MultitaskDockManager.Constants.standardSpringDamping), value: dockManager.adaptiveIconSize)
     }
 }
 
